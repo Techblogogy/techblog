@@ -1,0 +1,66 @@
+---
+import Base from '../layouts/Base.astro';
+import PostList from '../components/PostList.astro';
+import { allPosts } from '../lib/posts';
+import { SITE } from '../lib/site';
+const posts = await allPosts();
+---
+<Base>
+  <section class="hero wrap wrap--wide">
+    <h1 class="display">Things I build,<br />and what they taught me</h1>
+    <canvas class="scope" aria-hidden="true"></canvas>
+    <p class="lede">
+      I'm {SITE.author}. I learn by playing with things: code, sound, hardware, whatever has caught my
+      attention lately. This is where I write about what I tried and what I found out.
+    </p>
+  </section>
+  <div class="wrap wrap--wide">
+    <PostList posts={posts} />
+  </div>
+</Base>
+
+<style>
+  .hero { padding-top: clamp(2rem, 8vw, 5rem); padding-bottom: 2.5rem; }
+  h1 { font-size: clamp(2.8rem, 9vw, 6.2rem); margin: 0; max-width: 14ch; }
+  .scope { display: block; width: 100%; height: 72px; margin: 1.6rem 0 1.2rem; }
+  .lede { max-width: 38rem; font-size: 1.15rem; color: var(--ink-soft); margin: 0; }
+</style>
+
+<script>
+  // The hero trace: a slow sum of partials. Moving the pointer across the page retunes it.
+  const canvas = document.querySelector<HTMLCanvasElement>('.scope')!;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let tune = 0.35, target = 0.35, t = 0;
+  addEventListener('pointermove', (e) => { target = e.clientX / innerWidth; });
+
+  const frame = () => {
+    const dpr = devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+    const ctx = canvas.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const css = getComputedStyle(document.documentElement);
+    ctx.strokeStyle = css.getPropertyValue('--rule').trim();
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+    tune += (target - tune) * 0.04;
+    const f = 3 + tune * 9;
+    ctx.strokeStyle = css.getPropertyValue('--signal').trim();
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += 2) {
+      const u = x / w;
+      const y = Math.sin(2 * Math.PI * f * u + t) * 0.6
+        + Math.sin(2 * Math.PI * f * 2.01 * u - t * 1.3) * 0.25 * (1 - tune)
+        + Math.sin(2 * Math.PI * f * 3.02 * u + t * 0.7) * 0.15 * tune;
+      const env = Math.sin(Math.PI * u);
+      ctx.lineTo(x, h / 2 - y * env * (h / 2 - 4));
+    }
+    ctx.stroke();
+    t += 0.02;
+    if (!reduce) requestAnimationFrame(frame);
+  };
+  frame();
+  if (reduce) new ResizeObserver(frame).observe(canvas);
+</script>

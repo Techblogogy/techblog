@@ -1,0 +1,208 @@
+@import '@fontsource-variable/instrument-sans/wdth.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+
+:root {
+  --faceplate: #e4e7ea;
+  --panel: #eef0f2;
+  --ink: #18202e;
+  --ink-soft: #4a5466;
+  --rule: #b7bdc6;
+  --anodized: #2747c9;
+  --signal: #c9831c;
+  --code-bg: #f6f7f8;
+  color-scheme: light;
+
+  --sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', monospace;
+  --measure: 40rem;
+  --gutter: clamp(16px, 5vw, 48px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --faceplate: #161b24;
+    --panel: #1d2330;
+    --ink: #e4e7ec;
+    --ink-soft: #a3acbb;
+    --rule: #343c4b;
+    --anodized: #8ea4ff;
+    --signal: #e9a13b;
+    --code-bg: #1b212c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --faceplate: #161b24;
+  --panel: #1d2330;
+  --ink: #e4e7ec;
+  --ink-soft: #a3acbb;
+  --rule: #343c4b;
+  --anodized: #8ea4ff;
+  --signal: #e9a13b;
+  --code-bg: #1b212c;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--faceplate);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  font-variation-settings: 'wdth' 100;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a {
+  color: var(--anodized);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+a:hover {
+  text-decoration-thickness: 2px;
+}
+:focus-visible {
+  outline: 2px solid var(--anodized);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.wrap {
+  max-width: calc(var(--measure) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+.wrap--wide {
+  max-width: calc(56rem + 2 * var(--gutter));
+}
+
+/* Condensed "silkscreen" display type, the way model names are printed on gear. */
+.display {
+  font-family: var(--sans);
+  font-variation-settings: 'wdth' 75;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+
+h1,
+h2,
+h3 {
+  font-variation-settings: 'wdth' 80;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.005em;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+/* ---- Prose ---- */
+.prose {
+  font-size: 1.0625rem;
+}
+.prose h2 {
+  font-size: 1.6rem;
+  margin: 2.6rem 0 0.6rem;
+}
+.prose h3 {
+  font-size: 1.2rem;
+  margin: 2rem 0 0.4rem;
+}
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0 0 1.1rem;
+}
+.prose li + li {
+  margin-top: 0.3rem;
+}
+.prose blockquote {
+  margin: 1.6rem 0;
+  padding: 0.2rem 0 0.2rem 1.1rem;
+  border-left: 3px solid var(--signal);
+  color: var(--ink-soft);
+}
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 2.5rem 0;
+}
+.prose img {
+  display: block;
+  max-width: 100%;
+  max-height: min(34rem, 75vh);
+  width: auto;
+  height: auto;
+  margin: 1.6rem auto;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+}
+.prose :not(pre) > code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.08em 0.32em;
+}
+.prose pre {
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  background: var(--code-bg) !important;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0;
+}
+.prose pre code span {
+  color: var(--shiki-light);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .prose pre code span {
+    color: var(--shiki-dark);
+  }
+}
+:root[data-theme='dark'] .prose pre code span {
+  color: var(--shiki-dark);
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.94rem;
+  margin: 1.4rem 0;
+  display: block;
+  overflow-x: auto;
+}
+.prose th,
+.prose td {
+  text-align: left;
+  padding: 0.45rem 0.8rem 0.45rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+.prose th {
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

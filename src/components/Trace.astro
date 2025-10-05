@@ -1,0 +1,14 @@
+---
+import { tracePath } from '../lib/site';
+interface Props { slug: string; width?: number; height?: number; class?: string }
+const { slug, width = 240, height = 40, class: cls } = Astro.props;
+---
+<svg class:list={['trace', cls]} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+  <line x1="0" x2={width} y1={height / 2} y2={height / 2} class="axis" />
+  <path d={tracePath(slug, width, height)} />
+</svg>
+<style>
+  .trace { display: block; width: 100%; height: auto; overflow: visible; }
+  path { fill: none; stroke: var(--signal); stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .axis { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
+</style>

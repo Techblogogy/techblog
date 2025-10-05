@@ -1,0 +1,45 @@
+---
+import Trace from './Trace.astro';
+import { formatDate } from '../lib/site';
+import type { Post } from '../lib/posts';
+interface Props { posts: Post[] }
+const { posts } = Astro.props;
+const years = [...new Set(posts.map((p) => p.data.pubDate.getFullYear()))];
+---
+{years.map((year) => (
+  <section class="year" aria-labelledby={`y${year}`}>
+    <h2 id={`y${year}`} class="display">{year}</h2>
+    <ol>
+      {posts.filter((p) => p.data.pubDate.getFullYear() === year).map((p) => (
+        <li>
+          <a href={`/posts/${p.id}/`}>
+            <time datetime={p.data.pubDate.toISOString()}>{formatDate(p.data.pubDate)}</time>
+            <span class="title">{p.data.title}{p.data.kind === 'note' && <span class="kind">note</span>}</span>
+            <span class="desc">{p.data.description}</span>
+            <Trace slug={p.id} class="t" />
+          </a>
+        </li>
+      ))}
+    </ol>
+  </section>
+))}
+<style>
+  .year { display: grid; grid-template-columns: 7rem 1fr; gap: 0 1.5rem; padding: 1.6rem 0; border-top: 1px solid var(--rule); }
+  .year h2 { font-size: 2.6rem; margin: 0; color: var(--ink-soft); }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li + li { margin-top: 0.4rem; }
+  li a { display: grid; grid-template-columns: 1fr 9rem; grid-template-areas: 'time trace' 'title trace' 'desc trace'; column-gap: 1.5rem; padding: 0.7rem 0.75rem; margin: 0 -0.75rem; border-radius: 8px; color: var(--ink); text-decoration: none; }
+  li a:hover { background: var(--panel); }
+  li a:hover .title { text-decoration: underline; text-decoration-color: var(--signal); text-underline-offset: 0.2em; }
+  time { grid-area: time; font-size: 0.85rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .title { grid-area: title; font-size: 1.2rem; font-weight: 600; line-height: 1.3; font-variation-settings: 'wdth' 85; }
+  .kind { margin-left: 0.5rem; font-size: 0.75rem; font-weight: 500; color: var(--anodized); border: 1px solid currentColor; border-radius: 999px; padding: 0.05rem 0.45rem; vertical-align: 0.2em; }
+  .desc { grid-area: desc; color: var(--ink-soft); font-size: 0.97rem; margin-top: 0.15rem; }
+  :global(.t) { grid-area: trace; align-self: center; }
+  @media (max-width: 720px) {
+    .year { grid-template-columns: 1fr; }
+    .year h2 { font-size: 2rem; margin-bottom: 0.5rem; }
+    li a { grid-template-columns: 1fr; grid-template-areas: 'time' 'title' 'desc' 'trace'; }
+    :global(.t) { max-width: 12rem; margin-top: 0.5rem; }
+  }
+</style>

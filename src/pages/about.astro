@@ -1,0 +1,18 @@
+---
+import Base from '../layouts/Base.astro';
+import { SITE } from '../lib/site';
+---
+<Base title="About">
+  <article class="wrap">
+    <h1 class="display">About</h1>
+    <div class="prose">
+      <p>I'm {SITE.author}. I like building things end to end, from the audio thread up to the UI, and I like knowing why they work.</p>
+      <p>This blog is where I write up what I build outside of work: guitar effects and generative music, local AI on my own hardware, Linux setups, and small tools that fix one annoying problem. Most posts include the code. The music ones include audio you can play.</p>
+      <p>I build most things with coding agents now, so there's a thread running through all of it about how to work with them well: what to hand over, what to keep, and how to tell the difference.</p>
+      <p>Code is on <a href={SITE.github}>GitHub</a>. New posts go out on the <a href="/rss.xml">RSS feed</a>.</p>
+    </div>
+  </article>
+</Base>
+<style>
+  h1 { font-size: clamp(2.5rem, 8vw, 4.5rem); margin: clamp(1.5rem, 6vw, 3.5rem) 0 1.5rem; }
+</style>

@@ -1,0 +1,8 @@
+---
+/** An aside in the margin of a post: a tip, a caveat, a thing I got wrong. */
+---
+<aside class="note"><slot /></aside>
+<style>
+  .note { margin: 1.5rem 0; padding: 0.8rem 1rem; background: var(--panel); border-left: 3px solid var(--anodized); border-radius: 0 6px 6px 0; font-size: 0.97rem; }
+  .note :global(p:last-child) { margin-bottom: 0; }
+</style>
