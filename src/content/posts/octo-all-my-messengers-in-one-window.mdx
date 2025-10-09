@@ -1,0 +1,75 @@
+---
+title: Octo, and why I'm starting to write things down
+description: I've kept a fork of Rambox alive on my machine for six years. It's time to share it, and to start writing up the rest of my little adventures too.
+pubDate: 2025-10-09T19:40:00+04:00
+tags: [electron, open-source, desktop]
+---
+
+I build a lot of small things and tell almost nobody about them. They live in `~/Documents/Personal`,
+they solve my problem, and then they sit there. This year I decided to change that and write up
+what I make, what broke, and what I learned from it. This is the first post, so I'm starting with the
+oldest project I still use every day.
+
+## Octo
+
+![Octo with WhatsApp and Telegram open](/img/octo/whatsapp.png)
+
+Octo is a desktop app that puts all my messengers in one window: WhatsApp, Telegram, Slack, Discord,
+Gmail and whatever else I pin, each in its own tab with its own unread counter. It runs on macOS,
+Windows and Linux.
+
+It started in 2019 as a fork of [Rambox](https://github.com/saenzramiro/rambox), which is a great
+project. I wanted a smaller version of it: no accounts, no sync backend, no paid tier, no analytics.
+The first weeks were mostly deleting code. After that it became a slow maintenance diary, one
+Electron upgrade a year, plus whatever broke in between.
+
+The code is on GitHub: [Techblogogy/Octo](https://github.com/Techblogogy/Octo). It's GPL-3.0, as the original was.
+
+## How it works
+
+Each service is an Electron `<webview>` running in its own **persistent session partition**. That one
+detail gives you most of the features for free. Cookies and storage never leak between tabs, you can
+be logged into two accounts of the same service, and restarting the app keeps you signed in.
+
+```js
+autoEl: {
+  tag: 'webview',
+  src: me.record.get('url'),
+  partition: 'persist:' + me.record.get('type') + '_' + me.id.replace('tab_', ''),
+  useragent: Rambox.ux.WebView.userAgent(service),
+  preload: Rambox.ux.WebView.preloadPath(),
+}
+```
+
+The preload script runs inside each page and does the one job a messenger wrapper really needs:
+it reads the unread count from the page and reports it back, so the tab badge and the dock badge
+stay in sync.
+
+The UI is Ext JS, which is an unusual choice in 2025. I kept it because rewriting a working UI is
+the easiest way to never finish a side project. I did stop using Sencha Cmd: the app now runs its
+Ext JS sources directly, and the theme compiles with dart-sass. That removed the most fragile
+part of the build.
+
+## The one bug worth telling
+
+In early 2025 WhatsApp and Outlook stopped loading. There was no error, just a page telling me to
+update my browser. The cause was a user agent string I'd pinned years ago to keep some service
+happy. By 2025 that "modern Chrome" was six years old, and the services quietly refused it.
+
+The fix was to stop pretending. Octo now sends the real Chromium user agent with the Electron and
+app tokens stripped out:
+
+```js
+userAgent: function (service) {
+  if (service && service.get('userAgent')) return service.get('userAgent');
+  return navigator.userAgent.replace(/ ?Electron\/\S+/i, '').replace(/ ?octo\/\S+/i, '');
+}
+```
+
+Lesson learned: a hard-coded version string is a time bomb, and it goes off years after you've
+forgotten it's there.
+
+## What's next here
+
+The plan for this blog is simple: write about the things I build, with the code and the mistakes
+included. Next up is a Postgres setup on a tiny k3s cluster, which I've been poking at this month.
