@@ -1,0 +1,81 @@
+---
+title: Postgres on single-node k3s, with backups that rotate themselves
+description: A small Helm chart for a self-hosted Postgres, and a nightly CronJob that ships dumps to Cloudflare R2 with daily, weekly and monthly retention.
+pubDate: 2025-10-21T21:10:00+04:00
+tags: [kubernetes, postgres, self-hosting, r2]
+---
+import Note from '../../components/Note.astro';
+
+I wanted a Postgres I control for side projects: no managed-database bill, no surprise limits,
+and backups I don't have to think about. A single VPS running [k3s](https://k3s.io) is enough for
+that. This post covers the Helm chart I ended up with and the backup job, which is the part I
+actually care about.
+
+## The shape of it
+
+The chart is deliberately boring:
+
+- a **StatefulSet** with one replica, storing data on k3s' built-in `local-path` provisioner
+- a **PodDisruptionBudget** so a node drain doesn't take the database down mid-write
+- a **ConfigMap** with a tuned `postgresql.conf` (shared buffers, work mem and WAL settings sized for
+  a small box rather than Postgres' very conservative defaults)
+- a **CronJob** that does the backups
+
+I skipped an operator. Operators are great when you have many clusters and a team. With one
+database on one node, it's another thing to upgrade and another thing that can break.
+
+## Backups: dump, compress, ship
+
+Every night the CronJob starts a `postgres:16.3-alpine` container, dumps the database, gzips it
+and uploads it to an R2 bucket through the S3 API. R2 was the obvious pick: it's cheap per gigabyte
+and restoring doesn't cost egress, which matters when a restore is the moment you least want a
+bill.
+
+```sh
+PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+  -h {{ include "postgres.fullname" . }} \
+  -U ${POSTGRES_USER} -d ${POSTGRES_DB} --format=plain \
+  | gzip > ${BACKUP_FILE}
+
+aws s3 cp ${BACKUP_FILE} "s3://${R2_BUCKET_NAME}/${BACKUP_PATH}" \
+  --endpoint-url="${R2_ENDPOINT}"
+```
+
+The AWS CLI works against R2 as-is once you set the endpoint URL and `AWS_DEFAULT_REGION=auto`.
+
+## Retention without a second tool
+
+Keeping every nightly dump forever gets expensive and makes restores hard to find. I wanted the
+classic grandfather-father-son scheme:
+
+| Kind | Rule | Kept for |
+|------|------|----------|
+| Daily | every backup | 30 days |
+| Weekly | backups taken on a Sunday | 12 weeks |
+| Monthly | backups taken on the 1st | 12 months |
+
+That fits in about thirty lines of shell at the end of the same job. It lists the bucket, works out
+each object's age, and deletes it only if no rule wants to keep it. The one trick is parsing dates
+portably, because GNU `date` and BSD `date` disagree about flags:
+
+```sh
+BACKUP_TIMESTAMP=$(date -d "$BACKUP_DATE" +%s 2>/dev/null \
+  || date -j -f "%Y-%m-%d" "$BACKUP_DATE" +%s 2>/dev/null \
+  || echo 0)
+```
+
+Alpine ships busybox `date`, which takes `-d`. My Mac takes `-j -f`. With both in the chain, the
+same script runs in the cluster and on my laptop when I test it, and anything unparseable comes
+out as `0` and gets skipped rather than deleted.
+
+<Note>
+A backup you haven't restored is a hope, not a backup. Restore into a scratch namespace before
+trusting any of this. Plain-format dumps reference roles by name, so create those roles first
+or run the restore with `--no-owner`.
+</Note>
+
+## Would I do it again?
+
+Yes, for side projects. It costs one small VPS and a few cents of R2 storage a month, and
+everything is in one chart I can read in five minutes. For anything with real users I'd still
+want point-in-time recovery (WAL archiving) on top of nightly dumps, and that's a future post.
