@@ -1,0 +1,82 @@
+---
+title: A resumable folder uploader for Cloudflare R2, built in one evening
+description: I wanted cheap cloud storage for folders too big for a drive subscription. The storage part was easy. Getting lots of big files out of a browser tab reliably was the actual project.
+pubDate: 2026-01-08T20:30:00+04:00
+tags: [r2, nextjs, browser-apis, tools]
+---
+import Note from '../../components/Note.astro';
+
+My problem was mundane: big folders I wanted off my laptop and somewhere safe. Consumer drive plans charge for
+capacity tiers I'd never fill and make large uploads painful. Object storage is the better fit.
+[Cloudflare R2](https://developers.cloudflare.com/r2/pricing/) charges about $0.015 per GB-month
+and nothing for egress, so getting my own files back doesn't cost anything.
+
+What R2 doesn't give you is a nice "drag this folder here and walk away" experience. So I built
+one: a small Next.js app that uploads an entire local folder to a bucket, survives interruptions,
+and resumes where it stopped. Eight commits, one evening. The code is at
+[Techblogogy/drive-uploader](https://github.com/Techblogogy/drive-uploader).
+
+## The browser does the heavy lifting
+
+The server never touches file bytes. It has exactly one job: signing URLs. The browser asks for a
+presigned `PUT` URL (or a set of URLs for a multipart upload) and sends data straight to R2. That
+keeps the server tiny and means the upload speed is whatever your connection to Cloudflare is.
+
+```ts
+// app/lib/r2.ts — R2 speaks the S3 API, so the AWS SDK works unchanged
+return new S3Client({
+  region: 'auto',
+  endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+  credentials: { accessKeyId, secretAccessKey },
+});
+```
+
+Folder access uses the **File System Access API**. You pick a directory once, and the app walks it
+and keeps `FileSystemFileHandle`s for every file. The handles, together with each file's upload
+state, are stored in IndexedDB. This is what makes resuming possible: after a crash, a closed tab
+or a reboot, the app still knows the folder, every file in it, and which ones are done.
+
+## The queue
+
+Uploads run through a queue with seven concurrent workers and a few rules that matter at this scale:
+
+- **Smallest files first.** The completed-files counter climbs quickly, and if something goes wrong
+  late in the run, the big files are the ones left to retry.
+- **Multipart above 100 MB**, in 50 MB parts. One flaky part gets retried, not the whole 4 GB video.
+- **Retry with exponential backoff** on `408`, `429` and `5xx`. Anything else is a real error and
+  is shown to the user instead of retried forever.
+- **Anything stuck is re-queued.** If the tab died mid-upload, files marked `hashing` or `uploading`
+  go back into the queue on the next start.
+
+```ts
+const stuckFiles = [...hashingFiles, ...uploadingFiles];
+// Sort by size (smaller first for faster completion count)
+this.uploadQueue = [...pendingFiles, ...retryableFiles, ...stuckFiles].sort(
+  (a, b) => a.size - b.size
+);
+```
+
+## Hashing without freezing the tab
+
+Each file is MD5-hashed before upload so R2 can verify the bytes it received (`Content-MD5`).
+Hashing a 10 GB file on the main thread freezes the page, so it runs in a **Web Worker** that
+reads the file in slices and feeds a streaming MD5. SubtleCrypto doesn't do MD5, so the worker
+has a small implementation of RFC 1321. It's about as much code as pulling in a dependency, and
+it's easier to reason about.
+
+## The last commit: keeping the laptop awake
+
+A long upload is useless if the laptop goes to sleep halfway through. The fix is the
+**Screen Wake Lock API**, with one catch: the browser releases the lock whenever the tab is hidden.
+So the app listens for `visibilitychange` and takes the lock again when you come back.
+
+<Note>
+The wake lock only holds while the tab is visible. For a truly unattended run, leave the tab in
+front, or run the app on a machine that never sleeps. There's a Dockerfile for that.
+</Note>
+
+## Result
+
+It does exactly one thing well. I point it at a folder, go do something else, and come back to a
+bucket that mirrors the folder, with a list of any files that failed and why. For a one-evening
+tool, that's the right amount of software.
