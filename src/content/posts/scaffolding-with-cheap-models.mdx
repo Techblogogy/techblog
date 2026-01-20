@@ -1,0 +1,58 @@
+---
+title: Scaffolding apps with cheap models
+description: I rebuilt the same multi-step page-flow template twice, in Solid and React, and let a budget model do a surprising share of the work. Notes on where cheap models are enough and where they aren't.
+pubDate: 2026-01-20T21:45:00+04:00
+tags: [agents, llms, frontend]
+---
+
+Early January I spent a few evenings on a question that comes up a lot now: how much of a new project
+can I hand to a cheap model before I have to switch to an expensive one?
+
+The test was a template for **multi-step page flows**: the onboarding-style sequence where every
+screen is a step, you move forward and back, and each step should appear instantly because its
+images are already loaded. I built it twice, once in Solid and once in React, and used a GLM model
+through an agent harness for a large share of the typing. This post has no code, just what I
+observed.
+
+## The setup
+
+Pages are plain files with a number in front (`01-welcome`, `02-details`, and so on), and the order in
+the file name is the order of the flow. A build plugin reads every page, finds the images it imports,
+and produces a manifest, so the app always knows what the *next* screen needs and fetches it ahead of
+time. In dev, that manifest updates live as you edit. Images get resized variants and blurred
+placeholders at build time.
+
+None of this is novel. What makes it a good test is that it covers both kinds of work: routing and
+state that are pure boilerplate, and a build plugin that has to parse source code correctly.
+
+## Where the cheap model was enough
+
+- **Scaffolding and wiring.** Project setup, the router, page transitions and config files. That's
+  the kind of code that exists ten thousand times in the training data, and the cheap model wrote it
+  quickly and mostly correctly.
+- **Porting between frameworks.** Once the Solid version worked, turning it into React went fine.
+  The model handles "same idea, different primitives" well, especially when you point it at the
+  working version.
+- **Tedious edits across many files.** Rename something everywhere, add the same prop to twelve
+  components. It's fast, cheap, and easy to check.
+
+## Where it wasn't
+
+- **Anything that needs a real parse.** The plugin that finds image imports kept falling back to
+  regexes that broke on the first unusual import. It only got solid once I insisted on walking the
+  TypeScript AST and reviewed that part myself.
+- **Dev-server edge cases.** Hot reload, cache invalidation and "the manifest is stale after I
+  delete a page" needed several rounds. The cheap model fixed the reported symptom and missed the
+  cause each time.
+- **Knowing when to stop.** Left alone, it added abstractions nobody asked for. Short sessions with
+  tight instructions worked much better than long open-ended ones.
+
+## The rule I took away
+
+Use the cheap model for **breadth** and the strong model, or my own attention, for **depth**.
+Boilerplate, ports and mechanical edits go to the cheap model, and I review the diff. The one or
+two parts of a project that are actually hard get a strong model and a careful read. Mixing them
+is where the money goes, and it doesn't make things faster.
+
+It also changed how I split up work. If a task can be described as "do X like we did Y", it's a
+cheap-model task. If I can't describe it that crisply, the model probably can't do it cheaply either.
