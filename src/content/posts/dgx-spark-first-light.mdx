@@ -1,0 +1,26 @@
+---
+title: A DGX Spark is on my desk (the Gigabyte one)
+description: 128 GB of unified memory in a box the size of a paperback. First model is running. Longer write-up to follow.
+pubDate: 2026-02-17T22:05:00+04:00
+tags: [local-ai, hardware, dgx-spark]
+kind: note
+---
+
+It arrived. Mine is Gigabyte's version of the DGX Spark, the **AI TOP ATOM**: same NVIDIA GB10
+chip and the same software stack as NVIDIA's own box, in Gigabyte's enclosure. It's smaller than I expected,
+and it's the most memory I've ever had attached to a GPU: **128 GB unified** between a Grace CPU and a
+Blackwell GPU on the same chip.
+
+![The Gigabyte AI TOP ATOM on my desk, next to the monitor, with my guitar's headstock peeking in from the left](/img/posts/dgx-spark-on-desk.webp)
+
+First evening, in order:
+
+1. Plugged it in, it booted into DGX OS (Ubuntu with the NVIDIA stack preinstalled).
+2. Put it on the LAN and set up SSH keys. It sits next to my monitor but runs headless.
+3. Pulled NVIDIA's vLLM container, served a coding model, and pointed my agent CLI at it.
+
+It answered. The whole thing, box to first token, took one evening, and most of that was the
+model download.
+
+The question I actually care about is whether this can replace my ChatGPT subscription, and
+what "replace" even means. I'll use it for real work for a few weeks and write that up properly.
