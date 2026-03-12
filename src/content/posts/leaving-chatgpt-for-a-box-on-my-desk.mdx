@@ -1,0 +1,106 @@
+---
+title: Leaving ChatGPT for a box on my desk
+description: A month with a DGX Spark. How I serve models on it, the memory-bandwidth maths that decides which models are usable, and why I cancelled one subscription but not the other.
+pubDate: 2026-03-12T21:20:00+04:00
+tags: [local-ai, hardware, dgx-spark, vllm, llms]
+---
+import Note from '../../components/Note.astro';
+
+A month ago a [DGX Spark](/posts/dgx-spark-first-light/) arrived (Gigabyte's AI TOP ATOM, to be exact: same GB10 chip, different enclosure). The goal was a "cloud exit": move
+as much of my AI use as possible off rented chat subscriptions onto hardware I own. Here's how that
+went, what I run, and where I drew the line.
+
+## Why bother
+
+Three reasons, in order of how much they actually mattered:
+
+1. **Private stuff stays private.** Personal documents, half-finished ideas, other people's code I've
+   been asked to look at. With a local model I don't have to think about where it goes.
+2. **No per-token anxiety for agent loops.** Agents are chatty. A loop that reads twenty files and
+   retries a test five times is fine on hardware I already paid for.
+3. **Understanding the stack.** I wanted to know how serving actually works: quantisation, KV cache,
+   batching. You learn that by running it, not by reading about it.
+
+## The one number that matters: memory bandwidth
+
+The Spark's headline is 128 GB of unified memory, and capacity decides what *fits*. Bandwidth
+decides how fast it *runs*. When a model generates text it reads every active weight once per token,
+so a good upper bound is:
+
+```
+tokens/s  ≲  memory bandwidth / bytes of active weights per token
+```
+
+The GB10's LPDDR5x has roughly **273 GB/s**. That makes the architecture of the model more
+important than its size:
+
+| Model | Active params / token | Weights read / token | Ceiling on the Spark |
+|---|---|---|---|
+| Dense 70B, 4-bit | 70B | ~35 GB | ~8 tok/s |
+| gpt-oss-120b (MoE, MXFP4) | ~5.1B | ~2.7 GB | ~100 tok/s |
+| Qwen3-Coder-Next (MoE, FP8) | ~3B | ~3 GB | ~90 tok/s |
+
+Real throughput sits well under the ceiling, because attention, KV-cache reads and overhead all take
+their share, but the ranking holds, and it holds by a lot. **A big dense model is technically
+possible on this box and miserable to use. A big mixture-of-experts model is great.** Large total
+parameter count for knowledge and a small active count for speed is exactly what unified memory is
+good at.
+
+## How I serve models
+
+vLLM in NVIDIA's container, exposing an OpenAI-compatible API on the LAN. Everything else talks to
+that endpoint.
+
+```sh
+vllm serve Qwen/Qwen3-Coder-Next-FP8 \
+  --port 8123 \
+  --max-model-len 131072 \
+  --gpu-memory-utilization 0.85 \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder
+```
+
+The two flags that matter for agents are the last two. Without a tool-call parser the model writes
+its tool calls as plain text and the agent never runs them. `--gpu-memory-utilization` leaves
+headroom for the OS, since on unified memory "GPU memory" and "system memory" are the same pool.
+
+Then any client that speaks the OpenAI API can use it. My opencode config is just a provider entry:
+
+```json
+{
+  "provider": {
+    "local-spark": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Spark vLLM",
+      "options": { "baseURL": "http://spark.lan:8123/v1" },
+      "models": { "Qwen/Qwen3-Coder-Next-FP8": { "name": "Qwen3 Coder Next" } }
+    }
+  }
+}
+```
+
+<Note>
+Unified memory is shared, so the model, the KV cache and everything else on the box compete for
+the same 128 GB. A long context window costs real memory. Size `--max-model-len` for how you
+actually work, not the maximum the model card allows.
+</Note>
+
+## What moved, and what didn't
+
+**Moved to the Spark:** anything private, bulk work (summarising, tagging, extraction over lots of
+files), agent loops on side projects, and experiments where I want to compare models on the same prompt.
+
+**Cancelled:** my ChatGPT subscription. Honestly, most of what I used it for was "a smart
+chat window", and a good local model plus a search tool covers that.
+
+**Kept:** Claude for serious coding work. On a hard, multi-file change in a real codebase the gap
+between the best hosted model and the best model I can run locally is still obvious, and my time
+costs more than the subscription. I'm not trying to go 100% local on principle. I'm trying to
+spend money only where the difference shows up.
+
+## Was it worth it?
+
+As a pure cost play against one subscription, no. It would take years to pay off. As a lab that
+lets me run anything, measure it, and keep private things private, yes, and it's the most fun
+piece of hardware I've owned in a while. The bandwidth maths above was worth learning on its own:
+it's the fastest way to know if a new model will be usable before downloading 80 GB of it.
