@@ -1,0 +1,78 @@
+---
+title: I riced my Linux setup without writing a config by hand
+description: Omarchy gave me a great starting point. Claude did the rest, from Hyprland keybinds to a matching theme across every app, one plain-English request at a time.
+pubDate: 2026-04-23T20:50:00+04:00
+tags: [linux, omarchy, hyprland, agents]
+---
+import Note from '../../components/Note.astro';
+
+I've tried to "rice" a Linux desktop several times over the years: tiling window manager, matching
+colours everywhere, a bar that shows exactly what I want. Each time I gave up about a weekend in,
+somewhere between reading the fourth wiki page on a config format and finding out the terminal,
+the bar and the launcher each want colours in a different syntax.
+
+This time I finished, and I didn't write a single line of config by hand.
+
+## Omarchy is the right starting point
+
+[Omarchy](https://omarchy.org) is DHH's opinionated Arch + Hyprland setup. You install it and you
+get a complete, good-looking, keyboard-driven desktop: Hyprland, Waybar, Walker as the launcher,
+a terminal, Neovim, and a theme system that switches everything at once.
+
+I love it for one reason above all: **it's opinionated, and it's all plain text.** Every piece of
+it is a readable config file in `~/.config`. That makes it the perfect thing to hand to an agent,
+because there's nothing hidden and nothing to click through.
+
+## The workflow
+
+I ran Claude Code in a terminal on the machine itself and described what I wanted in plain words.
+The pattern was the same every time:
+
+1. **Ask it to read first.** "Look at how Omarchy structures its Hyprland config and themes before
+   changing anything." This alone prevented most of the damage an agent can do to a desktop.
+2. **One change per request.** "Make the gaps smaller." "Put the clock in the middle of the bar."
+   Small requests are easy to check and easy to revert.
+3. **Reload and look.** Hyprland and Waybar reload their configs live, so every change was on
+   screen within a second.
+4. **Commit.** `~/.config` is a git repo now, so any bad change is one `git checkout` away.
+
+Some of the requests, in my actual words:
+
+- "Workspaces 1-5 on the left monitor, 6-9 on the right, and make Super+number follow that."
+- "Make a theme from this wallpaper and apply it to Hyprland borders, Waybar, the terminal and Neovim."
+- "Add a bar module that shows the current track from whatever is playing, and hide it when nothing is."
+- "Super+Shift+S should screenshot a region straight to the clipboard."
+
+The last one turned into a keybinding like this:
+
+```ini
+# ~/.config/hypr/bindings.conf
+bind = SUPER SHIFT, S, exec, grim -g "$(slurp)" - | wl-copy
+```
+
+I would never have remembered that `grim`, `slurp` and `wl-copy` are the three Wayland tools
+you pipe together for that. I didn't need to.
+
+## The part that surprised me: themes
+
+Theming is where ricing usually dies, because every program takes colours differently: Hyprland
+wants `rgba()`, Waybar wants CSS, the terminal wants its own TOML or INI, Neovim wants a Lua
+colourscheme. Omarchy already solves this with a theme folder per theme. Claude generated a
+complete new theme from a wallpaper, in every one of those formats, consistent with each other.
+That's the kind of tedious, cross-format consistency work agents are genuinely great at.
+
+<Note>
+Put `~/.config` under git before letting any agent near it. Not because it will do something
+malicious, but because "make it look nicer" is a vague request and you'll want to diff what
+actually changed.
+</Note>
+
+## Why this matters beyond a pretty desktop
+
+Ricing used to be a hobby for people with the patience to learn five config languages. With an
+agent it becomes a design exercise: I decide what I want the machine to feel like, and the
+translation into config is handled for me. I understand my setup better now, too, because
+every change came with an explanation I could read.
+
+And I love Omarchy for making this easy. A clean, opinionated, text-only base is exactly what
+you want to hand an agent. The same is true for codebases.
