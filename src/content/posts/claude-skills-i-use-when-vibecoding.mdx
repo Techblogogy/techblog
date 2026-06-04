@@ -1,0 +1,84 @@
+---
+title: How I prompt coding agents, and the Claude skills I actually use
+description: I don't write much code by hand anymore. Most of my work is writing good instructions. Here's the prompting style that works for me, and the handful of skills that earn their place.
+pubDate: 2026-06-04T21:00:00+04:00
+tags: [agents, claude-code, skills, workflow]
+---
+import Note from '../../components/Note.astro';
+
+Most of what I build now, I build by prompting agents. "Vibecoding" undersells it a bit, because the
+vibes are mostly *specification*: the quality of what comes out depends almost entirely on how clearly
+I describe what I want and how I check the result. Here's how I work, and the Claude Code skills that
+make the biggest difference.
+
+## How I prompt
+
+**I describe the outcome, not the steps.** "Uploads should survive the tab being closed and resume
+where they stopped" beats "add IndexedDB and store a status field". The agent is often better at
+the how than I am. My job is the what and the why.
+
+**I give it the context I'd give a new teammate.** Who uses this, what "done" looks like, what I've
+already tried, what not to touch. One paragraph of context saves ten rounds of correction.
+
+**I ask it to read before it writes.** "Look at how the existing blocks are defined, then add a
+tremolo block the same way." Agents that start by reading produce code that looks like the rest of
+the codebase. Agents that start by typing produce code that looks like the internet.
+
+**I make it prove things.** "Run the tests." "Start the app and take a screenshot." "Render the audio
+and check it's not silent." If the agent can't show it working, I assume it isn't.
+
+**I keep sessions short and focused.** One feature, one session. Long, wandering sessions collect
+stale assumptions.
+
+## What a skill is
+
+A skill is a folder with a `SKILL.md` file: instructions, and optionally scripts and reference files,
+that Claude loads only when the task calls for it. It's a way to package "how we do X here" once
+instead of pasting it into every prompt. The skill's description sits in context and the full
+instructions load on demand, so having many of them costs almost nothing.
+
+## The skills that earn their place
+
+### frontend-design
+
+The biggest quality jump for anything visual. Without it, agent-built UIs converge on the same look:
+cream background, rounded cards, a gradient, a big number with a small label. The skill pushes for
+an actual design plan (palette, type, layout, one memorable element) and makes the agent critique
+its own choices before building. This blog was designed with it.
+
+### code-review and simplify
+
+Two different passes that I run before I commit anything non-trivial. **code-review** looks for bugs:
+wrong behaviour, missed edge cases, broken error handling. **simplify** looks for things that work
+but shouldn't exist: duplicated helpers, needless abstraction, code that could reuse something already
+in the repo. Agents over-build by default, and simplify is the counterweight.
+
+### skill-creator
+
+The skill for making skills. When I notice I'm giving the same instructions for the third time
+(how I like tests structured, how a certain API should be called), I turn them into a skill. It
+also helps test whether the skill actually triggers when it should, which is the part people skip.
+
+### run
+
+"Launch the app and show me it working." It knows how to start different kinds of projects (a CLI,
+a web server, a TUI, a browser app) and verify the change in the real running thing, not just in
+tests. This one's quiet, but it has caught more "tests pass, app is broken" moments than anything else.
+
+### loop
+
+For anything that needs checking repeatedly: "watch the deploy and tell me when it's live", "rerun
+this flaky test every few minutes and collect failures". It keeps a task alive on an interval so
+I don't have to babysit it.
+
+<Note>
+Write your own before reaching for more of other people's. The best skills I have are small and
+boring: three paragraphs about how *I* want something done. They're only useful because they're
+specific.
+</Note>
+
+## The mental model
+
+I think of the agent as a fast, well-read engineer on their first day, every day. They know
+everything in general and nothing about my situation. Prompting well means closing that gap: context,
+goals, constraints and a way to check. Skills are how I stop closing the same gap twice.
