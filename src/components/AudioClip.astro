@@ -1,0 +1,103 @@
+---
+/** A clip with its real waveform: the file is decoded in the browser and drawn as peaks. */
+interface Props { src: string; title: string; caption?: string }
+const { src, title, caption } = Astro.props;
+---
+<figure class="clip" data-src={src}>
+  <div class="row">
+    <button type="button" class="play" aria-label={`Play ${title}`}>
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" class="i-play"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" class="i-pause"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
+    </button>
+    <div class="body">
+      <div class="head"><span class="title">{title}</span><span class="time">0:00</span></div>
+      <canvas height="48" aria-hidden="true"></canvas>
+    </div>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+  <audio preload="metadata" src={src}></audio>
+</figure>
+
+<style>
+  .clip { margin: 1.4rem 0; }
+  .row { display: flex; gap: 0.9rem; align-items: center; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 0.7rem 0.9rem; }
+  .play { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--faceplate); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+  .play:hover { background: var(--ink); color: var(--faceplate); }
+  .i-pause { display: none; }
+  .clip.playing .i-pause { display: block; }
+  .clip.playing .i-play { display: none; }
+  .body { flex: 1; min-width: 0; }
+  .head { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem; margin-bottom: 0.25rem; }
+  .title { font-weight: 600; }
+  .time { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  canvas { display: block; width: 100%; height: 48px; cursor: pointer; }
+  figcaption { font-size: 0.88rem; color: var(--ink-soft); margin-top: 0.45rem; }
+</style>
+
+<script>
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  for (const fig of document.querySelectorAll<HTMLElement>('figure.clip')) {
+    const audio = fig.querySelector('audio')!;
+    const canvas = fig.querySelector('canvas')!;
+    const btn = fig.querySelector<HTMLButtonElement>('.play')!;
+    const time = fig.querySelector<HTMLElement>('.time')!;
+    let peaks: Float32Array | null = null;
+
+    const draw = () => {
+      const dpr = devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      const ctx = canvas.getContext('2d')!;
+      ctx.scale(dpr, dpr);
+      const css = getComputedStyle(fig);
+      const played = css.getPropertyValue('--signal').trim();
+      const rest = css.getPropertyValue('--rule').trim();
+      const progress = audio.duration ? audio.currentTime / audio.duration : 0;
+      const bars = Math.floor(w / 3);
+      for (let i = 0; i < bars; i++) {
+        const v = peaks ? peaks[Math.floor((i / bars) * peaks.length)] : 0.04;
+        const bh = Math.max(1.5, v * (h - 4));
+        ctx.fillStyle = i / bars < progress ? played : rest;
+        ctx.fillRect(i * 3, (h - bh) / 2, 2, bh);
+      }
+      time.textContent = audio.duration ? `${fmt(audio.currentTime)} / ${fmt(audio.duration)}` : '0:00';
+    };
+
+    fetch(fig.dataset.src!)
+      .then((r) => r.arrayBuffer())
+      .then((buf) => new AudioContext().decodeAudioData(buf))
+      .then((decoded) => {
+        const data = decoded.getChannelData(0);
+        const n = 400, step = Math.floor(data.length / n);
+        peaks = new Float32Array(n);
+        let max = 0;
+        for (let i = 0; i < n; i++) {
+          let m = 0;
+          for (let j = i * step; j < (i + 1) * step; j += 16) m = Math.max(m, Math.abs(data[j]));
+          peaks[i] = m; max = Math.max(max, m);
+        }
+        peaks = peaks.map((p) => p / (max || 1));
+        draw();
+      })
+      .catch(draw);
+
+    let raf = 0;
+    const tick = () => { draw(); raf = requestAnimationFrame(tick); };
+    btn.addEventListener('click', () => {
+      if (audio.paused) {
+        document.querySelectorAll('audio').forEach((a) => a !== audio && a.pause());
+        audio.play();
+      } else audio.pause();
+    });
+    audio.addEventListener('play', () => { fig.classList.add('playing'); btn.setAttribute('aria-label', 'Pause'); tick(); });
+    audio.addEventListener('pause', () => { fig.classList.remove('playing'); btn.setAttribute('aria-label', 'Play'); cancelAnimationFrame(raf); draw(); });
+    audio.addEventListener('loadedmetadata', draw);
+    canvas.addEventListener('click', (e) => {
+      if (!audio.duration) return;
+      audio.currentTime = (e.offsetX / canvas.clientWidth) * audio.duration;
+      draw();
+    });
+    new ResizeObserver(draw).observe(canvas);
+  }
+</script>

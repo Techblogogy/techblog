@@ -1,0 +1,147 @@
+---
+title: I wrote my own guitar effects with AI, and learned DSP by accident
+description: What started as "can Claude build me an overdrive?" turned into a crash course in sample rates, filters and clipping. Code, the ideas behind it, and clips you can listen to.
+pubDate: 2026-08-12T21:30:00+04:00
+tags: [audio, dsp, guitar, python, agents]
+series: Sound & code
+---
+import AudioClip from '../../components/AudioClip.astro';
+import Note from '../../components/Note.astro';
+
+I play guitar, badly but happily, and I've always treated pedals as magic boxes: turn the knob,
+the sound changes, don't ask. This summer I asked. I wanted to build my own effects in code and hear
+them in real time, with Claude as a patient tutor and co-author. This is what I learned, starting
+from basically zero audio knowledge.
+
+![My PRS Silver Sky, the guitar all of this was built around](/img/posts/prs-silver-sky.webp)
+
+## First, the sounds
+
+Here's the same riff through four chains I built. The input is a synthetic plucked string
+(Karplus–Strong, more on that below), so what you're hearing is only the effects, not my playing.
+
+<AudioClip src="/audio/tonetech-dry.mp3" title="Dry" caption="The raw input: a synthesised plucked-string riff, no processing." />
+<AudioClip src="/audio/tonetech-glassy-clean.mp3" title="Glassy clean" caption="Compressor → clean 'blackface' amp → cab → chorus → reverb." />
+<AudioClip src="/audio/tonetech-plexi-crunch.mp3" title="Plexi crunch" caption="Gate → boost → driven 'Brit' amp → cab → a little room." />
+<AudioClip src="/audio/tonetech-comfortably-wet.mp3" title="Comfortably wet" caption="Compressor → fuzz → clean amp → cab → phaser → long dark delay → big reverb." />
+
+## Lesson 1: audio is just arrays, very fast
+
+Digital audio is a list of numbers between −1 and 1, one every 1/48000th of a second at 48 kHz.
+A real-time effect gets that list in small chunks called **buffers**, transforms them, and has to hand
+them back before the next one arrives.
+
+The buffer size is a trade-off you can feel with your fingers. At 256 samples and 48 kHz each
+buffer is **5.3 ms** of audio. Smaller buffers mean less delay between picking a string and hearing
+it, but less time to do the work and a higher risk of clicks when you run out of it. I ended up at
+256, which is responsive enough to play through.
+
+My engine runs its own loop, reading from the interface, processing and writing out, instead of
+using the library's built-in duplex stream. That costs one extra buffer of latency, but it means I
+can meter the levels and keep a ring buffer of the last few seconds of output, which becomes
+important later.
+
+```python
+while not self._stop.is_set():
+    chunk = inp.read(self.buffer_size)
+    with self._lock:
+        board = self._chain.board
+    processed = board(chunk, self.sample_rate, reset=False)
+    self._meter(chunk, processed)
+    self._push_capture(processed)
+    out.write(processed.astype(np.float32, copy=False), self.sample_rate)
+```
+
+`reset=False` is the important bit. Filters, delays and reverbs have *memory*: their output depends on
+previous samples. Reset them between buffers and you hear a click every 5 ms.
+
+## Lesson 2: an overdrive is a filter sandwich
+
+I asked Claude to explain what's actually inside a Tube Screamer, the most copied overdrive ever.
+The answer changed how I think about all distortion: **clipping is only the middle of it. The filters
+around it do most of the work.**
+
+1. A **mid boost** around 720 Hz *before* the clipping, so the mids break up first. That's the
+   famous "mid hump" that helps a guitar cut through a band.
+2. A **high-pass** to cut the lows *before* clipping, because distorted bass turns to mud.
+3. **Soft clipping**: the waveform's peaks get rounded off instead of chopped, which adds warm harmonics.
+4. A **low-pass** *after* clipping. That's the tone knob, taming the fizzy harmonics clipping creates.
+5. **Output level**, compensated so turning up drive doesn't just make it louder.
+
+In code, that recipe is one function that maps three knobs to five processing stages:
+
+```python
+def _od(r: dict[str, float]) -> list[dict[str, float]]:
+    # Tube Screamer topology: mid hump in, soft clip, tone lowpass, level out.
+    return [
+        dict(cutoff_frequency_hz=720.0, gain_db=3.0 + 3.0 * (r["drive"] / 30.0), q=0.8),
+        dict(cutoff_frequency_hz=110.0),
+        dict(drive_db=r["drive"]),
+        dict(cutoff_frequency_hz=r["tone"]),
+        dict(gain_db=r["level"] - r["drive"] * 0.55),
+    ]
+```
+
+The same function builds the effect *and* updates it live when a knob moves, so the two can never
+drift apart. Moving a knob just sets new values on the existing filters. Only adding or removing a
+whole block rebuilds the chain, and that swap happens at a buffer boundary so you never hear it.
+
+<Note>
+The distortion and fuzz blocks follow the same pattern with different ingredients: hard clipping
+instead of soft for a RAT-style distortion, and a huge drive into a clipper for fuzz. Once you
+see effects as recipes of filters and nonlinearities, every pedal schematic starts to make sense.
+</Note>
+
+## Lesson 3: knobs are logarithmic because ears are
+
+My first tone knob felt broken: nothing happened for most of the range, then everything happened
+at once. Our hearing is logarithmic. Going from 1 kHz to 2 kHz sounds like the same step as 4 kHz
+to 8 kHz. So any knob that controls a frequency or a time needs a log curve:
+
+```python
+def denorm(self, value: float) -> float:
+    value = min(1.0, max(0.0, value))
+    if self.curve == "log":
+        return self.lo * (self.hi / self.lo) ** value
+    return self.lo + (self.hi - self.lo) * value
+```
+
+Every knob is stored as 0–1 and converted to real units (Hz, dB, ms) through its own curve. That
+also turned out to be a great interface for an AI, which I'll get to in a later post.
+
+## Lesson 4: the cabinet is the secret
+
+My first amp simulation sounded like an angry bee. The reason: a real guitar speaker in a cabinet
+is a steep **low-pass filter**, and almost nothing above ~5 kHz makes it out. Without that filter,
+all the harsh upper harmonics from clipping go straight to your ears. Adding a simple cab block (a
+low cut, a body resonance and a high cut around 5 kHz) did more for realism than any amount of
+tweaking the amp.
+
+## Lesson 5: a plucked string in four lines
+
+To make test audio without plugging in a guitar, Claude pointed me to **Karplus–Strong**, which
+is honestly beautiful. Fill a buffer one period long with noise, then keep averaging neighbouring
+samples as you loop around it. The averaging is a gentle low-pass, so the tone gets purer and quieter
+over time, exactly like a real plucked string.
+
+```python
+buf = rng.uniform(-1, 1, int(SR / freq))
+for i in range(n):
+    out[i] = buf[i % len(buf)]
+    buf[i % len(buf)] = 0.996 * 0.5 * (buf[i % len(buf)] + buf[(i + 1) % len(buf)])
+```
+
+That riff at the top is made this way. It's also what got me thinking about generating music, not
+just processing it. That's coming in a later post.
+
+## How working with Claude went
+
+I built on top of Spotify's [pedalboard](https://github.com/spotify/pedalboard) library for the
+low-level DSP (filters, clippers, delays, reverb) and put my effort into the design: what goes
+in each block, in what order, with which knobs. Claude was most valuable as a **tutor with
+infinite patience**. I asked "why" constantly: why does this sound muddy, why does order matter,
+what is Q. The answers came with the maths when I wanted it and without it when I didn't.
+
+The best habit I picked up: **render and measure, don't guess.** When something sounded wrong,
+I'd have the agent run a test signal through the chain and print the spectrum. Knowing where
+the energy actually was took much of the guesswork out of fixing it.
