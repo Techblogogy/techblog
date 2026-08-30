@@ -1,0 +1,75 @@
+---
+title: KeyboardLock, and the macOS permission that forgets you
+description: A 275-line Swift app that locks the keyboard so I can clean it. The interesting part was a debugging session where every permission check said yes and no key ever arrived.
+pubDate: 2026-08-30T12:40:00+04:00
+tags: [macos, swift, tools]
+kind: note
+---
+
+I wanted to wipe my keyboard without typing gibberish into whatever window had focus. So I wrote
+**KeyboardLock**: a tiny native macOS app that swallows every key, including modifiers and media
+keys, until you click Unlock with the mouse. An auto-unlock timer is the safety net in case you
+lock yourself out.
+
+It's one Swift file, built with `swiftc` from a shell script. No Xcode project.
+
+## How it works
+
+A `CGEventTap` sees keyboard events before any app does. Returning `nil` from the callback drops
+the event:
+
+```swift
+let mask: CGEventMask =
+    (1 << CGEventType.keyDown.rawValue) |
+    (1 << CGEventType.keyUp.rawValue) |
+    (1 << CGEventType.flagsChanged.rawValue) |
+    (1 << 14) // NX_SYSDEFINED: media and volume keys
+let callback: CGEventTapCallBack = { _, type, event, refcon in
+    let me = Unmanaged<Locker>.fromOpaque(refcon!).takeUnretainedValue()
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        if let t = me.tap { CGEvent.tapEnable(tap: t, enable: true) }
+        return Unmanaged.passUnretained(event)
+    }
+    DispatchQueue.main.async { me.onEvent?() }
+    return nil // swallow
+}
+```
+
+macOS disables a tap it thinks is too slow, so the callback turns itself back on when that happens.
+
+## The bug: everything says yes, nothing arrives
+
+After a rebuild the app stopped blocking anything. My diagnostic log was baffling:
+
+```
+AXIsProcessTrusted=true
+CGPreflightListenEventAccess=true
+tapCreate ok=true
+tapIsEnabled=true
+listening 8s — press some keys now
+events seen=0 tapEnabledAfter=true
+```
+
+Trusted, allowed, created, enabled, and still zero events.
+
+The cause is how macOS stores the Accessibility grant. For an **ad-hoc signed** app it's tied to the
+binary's code hash. Rebuild, and the hash changes. The old grant still shows as enabled in System Settings
+and the preflight checks still pass, but the tap gets nothing. Nothing tells you this has happened.
+
+The fix is to sign with a real identity when there is one. Then the grant is keyed on Team ID +
+bundle ID and survives rebuilds:
+
+```sh
+IDENTITY=$(security find-identity -v -p codesigning \
+  | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')
+if [[ -n "$IDENTITY" ]]; then
+  codesign --force --sign "$IDENTITY" --options runtime "$APP"
+else
+  echo "No signing identity found; using ad-hoc (grant will reset on every rebuild)"
+  codesign --force --sign - "$APP"
+fi
+```
+
+If you're building any macOS tool that needs Accessibility or Input Monitoring, sign it properly
+from day one. Otherwise, when every check passes and nothing happens, remove the app from the
+Accessibility list and add it back.
