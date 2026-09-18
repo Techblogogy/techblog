@@ -1,0 +1,124 @@
+---
+title: Procedural music with Claude, from a Markov chain to a groove
+description: A small generator that writes chord progressions, melodies and drum patterns and synthesises every sound from scratch. How each piece works, and what it sounds like.
+pubDate: 2026-09-18T21:15:00+04:00
+tags: [audio, generative, music, python, agents]
+series: Sound & code
+---
+import AudioClip from '../../components/AudioClip.astro';
+import Note from '../../components/Note.astro';
+
+After [building guitar effects](/posts/writing-my-own-guitar-effects-with-ai/) and turning them into
+[ToneTech](/posts/announcing-tonetech/), I got curious about
+the other direction. Instead of processing sound someone played, could code *write* the music?
+Not with a giant model, but with the classic tools: randomness, a bit of theory, and good constraints.
+
+I built a small generator with Claude over a couple of evenings. It's one Python file with numpy as
+the only dependency. Every sound is synthesised from scratch, and the whole piece is decided by a seed.
+
+## Listen first
+
+<AudioClip src="/audio/procgen-dusk-seed3.mp3" title="dusk, seed 3" caption="A minor, 84 bpm, swung. Eight bars." />
+<AudioClip src="/audio/procgen-neon-seed11.mp3" title="neon, seed 11" caption="D dorian, 118 bpm, straight. Twelve bars." />
+<AudioClip src="/audio/procgen-neon-seed12.mp3" title="neon, seed 12" caption="Same mood, next seed: different progression, melody and drums." />
+
+It won't win a Grammy, but it grooves, it stays in key, and every seed is different.
+That's the whole game with procedural music: **structure from rules, variety from randomness**.
+
+## Harmony: a Markov chain over chords
+
+Chord progressions aren't random. Some moves feel natural (going home to the root after the fifth)
+and others feel odd. A first-order Markov chain encodes exactly that: for each chord, the
+probability of each chord that comes next.
+
+```python
+# Scale degrees: 0 = i, 3 = iv, 4 = v, 5 = VI, 6 = VII
+CHORD_MARKOV = {
+    0: {3: 0.35, 5: 0.3, 4: 0.2, 6: 0.15},
+    3: {0: 0.3, 4: 0.4, 6: 0.3},
+    4: {0: 0.6, 5: 0.4},
+    5: {3: 0.5, 6: 0.3, 4: 0.2},
+    6: {0: 0.7, 3: 0.3},
+}
+```
+
+I wrote these by hand with Claude explaining the theory: why v wants to resolve to i, why VI → iv
+sounds melancholy. Because chords are scale *degrees*, not absolute notes, the same table works in
+any key and mode. Moods are just a root note, a scale, a tempo and an amount of swing.
+
+## Melody: a random walk with manners
+
+A melody made of random notes sounds like a cat on a keyboard. A melody that moves by small
+steps sounds sung. So the melody is a **random walk over scale degrees**: each note picks a
+nearby note, with smaller jumps much more likely.
+
+Then comes the trick that makes it sound intentional. **On strong beats, chord tones get four
+times the weight.** The melody wanders freely between beats but lands on notes that fit the harmony
+where your ear is listening hardest.
+
+```python
+cands = np.arange(prev_note - 4, prev_note + 5)
+w = np.exp(-np.abs(cands - prev_note) / 2.0)          # prefer small steps
+if s16 % 4 == 0:                                       # strong beat?
+    w *= np.where(np.isin(cands % 7, [c % 7 for c in chord_tones]), 4.0, 1.0)
+prev_note = int(np.clip(rng.choice(cands, p=w / w.sum()), 3, 14))
+```
+
+## Drums: probability grids
+
+Each drum gets 16 numbers, one per sixteenth note in a bar: the chance of a hit on that step.
+A `1` is always there (kick on the one, snare on two and four). The small numbers are ghost hits
+that appear sometimes, and that little bit of randomness is what keeps a loop from sounding like a loop.
+
+```python
+DRUMS = {
+    "kick":  [1, 0, 0, 0, .1, 0, .5, 0, .9, 0, .2, 0, .1, 0, .3, .1],
+    "snare": [0, 0, 0, 0, 1, 0, 0, .1, 0, 0, 0, 0, 1, 0, .1, .2],
+    "hat":   [.9, .4, .8, .4] * 4,
+}
+```
+
+Swing delays every off-beat sixteenth a fraction of a step. That's the entire difference between
+the lazy "dusk" and the driving "neon".
+
+## Sounds: synthesis in a few lines each
+
+No samples. Everything is maths:
+
+- **Kick**: a sine wave whose pitch drops fast from ~135 Hz to 45 Hz, with a quick decay. That
+  pitch drop is the "thump".
+- **Snare**: white noise plus a 190 Hz tone, both decaying quickly.
+- **Hi-hat**: differentiated noise (which boosts the highs) with a very short envelope.
+- **Pad**: three slightly detuned sawtooth waves through a low-pass filter whose cutoff rises and
+  falls over the note, so the chord "breathes".
+- **Lead**: two-operator **FM synthesis**. One sine wave modulates another's phase, and the
+  modulation decays fast, giving a bright attack that settles into a mellow tone. It's the same
+  principle as the classic DX7 electric pianos.
+
+```python
+def pluck_lead(freq, dur):
+    t = np.arange(int(dur * SR)) / SR
+    mod = 1.5 * np.sin(2 * np.pi * freq * 2 * t) * np.exp(-t * 6)   # decaying modulator
+    return np.sin(2 * np.pi * freq * t + mod) * adsr(len(t), .005, .15, .3, .1)
+```
+
+<Note>
+The pad's filter is a one-pole low-pass written as a plain Python loop over samples, which is slow.
+It's fine for rendering a clip offline. For real time it would need to be vectorised or moved to a
+compiled library, which is exactly why my guitar effects use one.
+</Note>
+
+## Where Claude helped most
+
+Not in writing the code, which is short, but in **turning taste into rules**. I'd say "the melody
+sounds aimless" and we'd work out that it wasn't landing on chord tones. I'd say "the drums feel
+robotic" and we'd add ghost-note probabilities and swing. Procedural music is mostly about
+putting feelings into numbers, and a collaborator who knows both the theory and the code makes
+that loop fast.
+
+The generator lives in this blog's repo under `labs/procedural-music/gen.py`. Pick a seed and
+render your own track:
+
+```sh
+python gen.py --seed 42 --mood neon --bars 16 my-track.mp3
+```
